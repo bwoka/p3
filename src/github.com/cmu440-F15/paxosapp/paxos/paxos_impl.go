@@ -129,7 +129,7 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 
 	cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: args.V}
 	for i := 0; i < pn.numNodes; i++ {
-		go sendCommit(pn, i, cArgs)
+		sendCommit(pn, i, cArgs)
 	}
 
 	reply.V = args.V
