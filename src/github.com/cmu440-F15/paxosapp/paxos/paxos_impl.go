@@ -2,6 +2,7 @@ package paxos
 
 import (
 	"errors"
+	//	"fmt"
 	"github.com/cmu440-F15/paxosapp/rpc/paxosrpc"
 	"net"
 	"net/http"
@@ -11,15 +12,15 @@ import (
 
 type paxosNode struct {
 	// TODO: implement this!
-	store       map[string]string
+	store       map[string]interface{}
 	highestSeen map[string]int
 	nodeID      int
 	hostMap     map[int]string
 	propAcks    map[string]int
 	acceptAcks  map[string]int
 	myHostPort  string
-
-	allNodes []*rpc.Client
+	allNodes    []*rpc.Client
+	numNodes    int
 
 	stage map[string]int
 }
@@ -33,7 +34,7 @@ type paxosNode struct {
 // is a replacement for a node which failed.
 func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, numRetries int, replace bool) (PaxosNode, error) {
 	newNode := paxosNode{
-		store:       make(map[string]string),
+		store:       make(map[string]interface{}),
 		highestSeen: make(map[string]int),
 		nodeID:      srvId,
 		hostMap:     hostMap,
@@ -41,6 +42,7 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		acceptAcks:  make(map[string]int),
 		myHostPort:  myHostPort,
 		allNodes:    make([]*rpc.Client, numNodes),
+		numNodes:    numNodes,
 		stage:       make(map[string]int)}
 
 	rpc.RegisterName("PaxosNode", &newNode)
@@ -68,31 +70,119 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 
 	}
 	return &newNode, nil
+	//	fmt.Println("woo")
+	//	return nil, nil
 
 }
 
 func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, reply *paxosrpc.ProposalNumberReply) error {
-	return errors.New("not implemented")
+	key := args.Key
+	var n int
+	if m, found := pn.highestSeen[key]; found {
+		n = (m/pn.numNodes+1)*pn.numNodes + pn.nodeID
+	} else {
+		n = pn.nodeID
+	}
+	pn.highestSeen[key] = n
+	reply.N = n
+	return nil
 }
 
 func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.ProposeReply) error {
-	return errors.New("not implemented")
+	pArgs := &paxosrpc.PrepareArgs{Key: args.Key, N: args.N}
+	var client *rpc.Client
+	replies := make(chan int, pn.numNodes)
+	for i := 0; i < pn.numNodes; i++ {
+		client = pn.allNodes[i]
+		go sendProposal(pn, client, replies, pArgs)
+	}
+	ackd := false
+	var j int
+	for j = 0; j < 1500; j++ {
+		if len(replies) > pn.numNodes/2 {
+			ackd = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ackd == false {
+		return nil
+	}
+
+	aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: args.V}
+	replies2 := make(chan int, pn.numNodes)
+	for i := 0; i < pn.numNodes; i++ {
+		client = pn.allNodes[i]
+		go sendAccept(pn, client, replies2, aArgs)
+	}
+	ackd = false
+	for k := j; k < 1500; k++ {
+		if len(replies2) > pn.numNodes/2 {
+			ackd = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ackd == false {
+		return nil
+	}
+
+	cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: args.V}
+	for i := 0; i < pn.numNodes; i++ {
+		go sendCommit(pn, i, cArgs)
+	}
+
+	reply.V = args.V
+	return nil
+}
+
+func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *paxosrpc.PrepareArgs) {
+	var reply paxosrpc.PrepareReply
+	client.Call("PaxosNode.RecvPrepare", pArgs, &reply)
+	replies <- 1
+	return
+}
+
+func sendAccept(pn *paxosNode, client *rpc.Client, replies chan int, aArgs *paxosrpc.AcceptArgs) {
+	var reply paxosrpc.AcceptReply
+	client.Call("PaxosNode.RecvAccept", aArgs, &reply)
+	replies <- 1
+	return
+}
+
+func sendCommit(pn *paxosNode, i int, cArgs *paxosrpc.CommitArgs) {
+	client := pn.allNodes[i]
+	var reply paxosrpc.CommitReply
+	client.Call("PaxosNode.RecvCommit", cArgs, &reply)
+	return
 }
 
 func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetValueReply) error {
-	return errors.New("not implemented")
+	key := args.Key
+	if value, found := pn.store[key]; found {
+		reply.Status = paxosrpc.KeyFound
+		reply.V = value
+	} else {
+		reply.Status = paxosrpc.KeyNotFound
+	}
+	return nil
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
-	return errors.New("not implemented")
+	reply.Status = paxosrpc.OK
+	return nil
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
-	return errors.New("not implemented")
+	reply.Status = paxosrpc.OK
+	return nil
 }
 
 func (pn *paxosNode) RecvCommit(args *paxosrpc.CommitArgs, reply *paxosrpc.CommitReply) error {
-	return errors.New("not implemented")
+	key := args.Key
+	value := args.V
+	pn.store[key] = value
+	return nil
 }
 
 func (pn *paxosNode) RecvReplaceServer(args *paxosrpc.ReplaceServerArgs, reply *paxosrpc.ReplaceServerReply) error {
