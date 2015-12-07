@@ -14,6 +14,10 @@ type paxosNode struct {
 	// TODO: implement this!
 	store       map[string]interface{}
 	highestSeen map[string]int
+	highestSeen map[string]int
+	va map[string]interface{}
+	na map[string]int
+
 	nodeID      int
 	hostMap     map[int]string
 	propAcks    map[string]int
@@ -23,6 +27,11 @@ type paxosNode struct {
 	numNodes    int
 
 	stage map[string]int
+}
+
+type Na_va struct{
+	na int
+	va string
 }
 
 // NewPaxosNode creates a new PaxosNode. This function should return only when
@@ -72,7 +81,6 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 	return &newNode, nil
 	//	fmt.Println("woo")
 	//	return nil, nil
-
 }
 
 func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, reply *paxosrpc.ProposalNumberReply) error {
@@ -92,6 +100,7 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 	pArgs := &paxosrpc.PrepareArgs{Key: args.Key, N: args.N}
 	var client *rpc.Client
 	replies := make(chan int, pn.numNodes)
+	acceptChan:=make(chan Na_va, pn.numNodes)
 	for i := 0; i < pn.numNodes; i++ {
 		client = pn.allNodes[i]
 		go sendProposal(pn, client, replies, pArgs)
@@ -105,11 +114,26 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	highestna:=0
+	highestva:=nil
+	close(acceptChan)
+	for nava:= range acceptChan{
+		if nava.na>=highestna{
+			highestna=nava.na
+			highestva=nava.va
+		}
+	}
+	ourValue:= args.V
+
+	if highestna!=nil{
+		ourValue=highestva
+	}
+
 	if ackd == false {
 		return nil
 	}
 
-	aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: args.V}
+	aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: ourValue}
 	replies2 := make(chan int, pn.numNodes)
 	for i := 0; i < pn.numNodes; i++ {
 		client = pn.allNodes[i]
@@ -127,20 +151,21 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		return nil
 	}
 
-	cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: args.V}
+	cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: outValue}
 	for i := 0; i < pn.numNodes; i++ {
 		sendCommit(pn, i, cArgs)
 	}
-
+	
 	reply.V = args.V
 	return nil
 }
 
-func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *paxosrpc.PrepareArgs) {
+func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *paxosrpc.PrepareArgs, acceptChan chan Na_va) {
 	var reply paxosrpc.PrepareReply
 	client.Call("PaxosNode.RecvPrepare", pArgs, &reply)
+	acceptChan <- Na_va{na=reply.n_a, va=reply.va}
 	replies <- 1
-	return
+	return 
 }
 
 func sendAccept(pn *paxosNode, client *rpc.Client, replies chan int, aArgs *paxosrpc.AcceptArgs) {
@@ -169,11 +194,31 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
+	
+	if highestSeen[args.Key]>args.N{
+		reply.Status=paxosrpc.Reject
+		reply.N_a=-1
+		reply.V_a=nil
+
+		return nil
+	}
+	highestSeen[args.Key]=args.N
 	reply.Status = paxosrpc.OK
+	reply.N_a=na[args.Key]
+	reply.V_a=va[args.Key]
+
 	return nil
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
+	
+	if highestSeen[args.Key]>args.N{
+		reply.Status=paxosrpc.Reject
+		return nil
+	}
+	highestSeen[args.Key]=args.N
+	na[args.Key]=args.N
+	va[args.Key]=args.N
 	reply.Status = paxosrpc.OK
 	return nil
 }
