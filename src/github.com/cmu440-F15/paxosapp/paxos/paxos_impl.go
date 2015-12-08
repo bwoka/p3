@@ -207,13 +207,13 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 	if pn.highestSeen[args.Key] > args.N {
 		reply.Status = paxosrpc.Reject
 		reply.N_a = -1
-		reply.V_a = ""
+		reply.V_a = nil
 
 		return nil
 	}
 	if _, ok := pn.na[args.Key]; !ok {
 		pn.na[args.Key] = -1
-		pn.va[args.Key] = ""
+		pn.va[args.Key] = nil
 	}
 	pn.highestSeen[args.Key] = args.N
 	reply.Status = paxosrpc.OK
