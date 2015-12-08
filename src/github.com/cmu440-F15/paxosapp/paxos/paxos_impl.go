@@ -11,7 +11,6 @@ import (
 )
 
 type paxosNode struct {
-	// TODO: implement this!
 	store       map[string]interface{}
 	highestSeen map[string]int
 	va          map[string]interface{}
@@ -44,6 +43,8 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 	newNode := paxosNode{
 		store:       make(map[string]interface{}),
 		highestSeen: make(map[string]int),
+		na:          make(map[string]int),
+		va:          make(map[string]interface{}),
 		nodeID:      srvId,
 		hostMap:     hostMap,
 		propAcks:    make(map[string]int),
@@ -52,7 +53,6 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		allNodes:    make([]*rpc.Client, numNodes),
 		numNodes:    numNodes,
 		stage:       make(map[string]int)}
-
 	rpc.RegisterName("PaxosNode", &newNode)
 	rpc.HandleHTTP()
 	l, e := net.Listen("tcp", myHostPort)
@@ -122,14 +122,19 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 	highestva = ""
 	close(acceptChan)
 	for nava := range acceptChan {
+		fmt.Println("nava ", nava)
 		if nava.na >= highestna {
 			highestna = nava.na
 			highestva = nava.va
 		}
 	}
+	fmt.Println("going to crash")
+	fmt.Println("args.V is ", args.V)
 	ourValue := args.V
+	fmt.Println("ourvalue2", ourValue)
 
 	if highestna > 0 {
+		fmt.Println("settting ", highestva)
 		ourValue = highestva
 	}
 
@@ -137,6 +142,7 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		return nil
 	}
 
+	fmt.Println("ourvalue ", ourValue)
 	aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: ourValue}
 	replies2 := make(chan int, pn.numNodes)
 	for i := 0; i < pn.numNodes; i++ {
@@ -167,8 +173,16 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *paxosrpc.PrepareArgs, acceptChan chan Na_va) {
 	var reply paxosrpc.PrepareReply
 	client.Call("PaxosNode.RecvPrepare", pArgs, &reply)
-	acceptChan <- Na_va{na: reply.N_a, va: reply.V_a.(string)}
+	fmt.Println("Sending reply...")
+	fmt.Println(reply.V_a)
+	fmt.Println("zzz")
+	va := reply.V_a.(string)
+	fmt.Println("a")
+	na := reply.N_a
+	fmt.Println("b")
+	acceptChan <- Na_va{na: na, va: va}
 	replies <- 1
+	fmt.Println("Sent reply...")
 	return
 }
 
@@ -198,22 +212,30 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
-	fmt.Println("Receiving prepare", pn)
+	fmt.Println("Receiving prepare")
 	if _, ok := pn.highestSeen["foo"]; !ok {
+		pn.highestSeen[args.Key] = -1
+	}
+	if _, ok := pn.highestSeen[args.Key]; !ok {
 		pn.highestSeen[args.Key] = -1
 	}
 	if pn.highestSeen[args.Key] > args.N {
 		reply.Status = paxosrpc.Reject
 		reply.N_a = -1
-		reply.V_a = nil
+		reply.V_a = ""
 
 		return nil
+	}
+	if _, ok := pn.na[args.Key]; !ok {
+		pn.na[args.Key] = -1
+		pn.va[args.Key] = ""
 	}
 	pn.highestSeen[args.Key] = args.N
 	reply.Status = paxosrpc.OK
 	reply.N_a = pn.na[args.Key]
 	reply.V_a = pn.va[args.Key]
 
+	fmt.Println(reply.V_a)
 	return nil
 }
 
@@ -228,7 +250,7 @@ func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.Accep
 	}
 	pn.highestSeen[args.Key] = args.N
 	pn.na[args.Key] = args.N
-	pn.va[args.Key] = args.N
+	pn.va[args.Key] = args.V
 	reply.Status = paxosrpc.OK
 	return nil
 }
