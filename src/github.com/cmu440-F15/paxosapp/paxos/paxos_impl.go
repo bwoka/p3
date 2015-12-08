@@ -2,7 +2,7 @@ package paxos
 
 import (
 	"errors"
-	//	"fmt"
+	"fmt"
 	"github.com/cmu440-F15/paxosapp/rpc/paxosrpc"
 	"net"
 	"net/http"
@@ -78,8 +78,8 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 
 	}
 	return &newNode, nil
-	//	fmt.Println("woo")
-	//	return nil, nil
+	fmt.Println("woo")
+	return nil, nil
 }
 
 func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, reply *paxosrpc.ProposalNumberReply) error {
@@ -96,16 +96,19 @@ func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, re
 }
 
 func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.ProposeReply) error {
+	fmt.Println("Proposing...")
 	pArgs := &paxosrpc.PrepareArgs{Key: args.Key, N: args.N}
 	var client *rpc.Client
 	replies := make(chan int, pn.numNodes)
 	acceptChan := make(chan Na_va, pn.numNodes)
 	for i := 0; i < pn.numNodes; i++ {
 		client = pn.allNodes[i]
+		fmt.Println(i)
 		go sendProposal(pn, client, replies, pArgs, acceptChan)
 	}
 	ackd := false
 	var j int
+	fmt.Println("Sent all proposals...")
 	for j = 0; j < 1500; j++ {
 		if len(replies) > pn.numNodes/2 {
 			ackd = true
@@ -113,6 +116,7 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	fmt.Println("got ACKD...")
 	highestna := 0
 	var highestva string
 	highestva = ""
@@ -194,8 +198,9 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
+	fmt.Println("Receiving prepare", pn)
 	if _, ok := pn.highestSeen["foo"]; !ok {
-	    pn.highestSeen[args.Key]=-1
+		pn.highestSeen[args.Key] = -1
 	}
 	if pn.highestSeen[args.Key] > args.N {
 		reply.Status = paxosrpc.Reject
@@ -213,8 +218,8 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
-	if _, ok := pn.highestSeen["foo"]; !ok {
-	    pn.highestSeen[args.Key]=-1
+	if _, ok := pn.highestSeen[args.Key]; !ok {
+		pn.highestSeen[args.Key] = -1
 	}
 
 	if pn.highestSeen[args.Key] > args.N {
