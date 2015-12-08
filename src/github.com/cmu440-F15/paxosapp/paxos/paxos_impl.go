@@ -52,7 +52,7 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		allNodes:    make([]*rpc.Client, numNodes),
 		numNodes:    numNodes,
 		stage:       make(map[string]int)}
-
+highest
 	rpc.RegisterName("PaxosNode", &newNode)
 	rpc.HandleHTTP()
 	l, e := net.Listen("tcp", myHostPort)
@@ -194,7 +194,7 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
-	if _, ok := pn.highestSeen["foo"]; !ok {
+	if _, ok := pn.highestSeen[args.Key]; !ok {
 	    pn.highestSeen[args.Key]=-1
 	}
 	if pn.highestSeen[args.Key] > args.N {
@@ -203,6 +203,10 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 		reply.V_a = nil
 
 		return nil
+	}
+	if _, ok := pn.highestna[args.Key]; !ok {
+	    pn.highestna[args.Key]=-1
+	    pn.highestva=nil
 	}
 	pn.highestSeen[args.Key] = args.N
 	reply.Status = paxosrpc.OK
@@ -213,7 +217,7 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
-	if _, ok := pn.highestSeen["foo"]; !ok {
+	if _, ok := pn.highestSeen[args.Key]; !ok {
 	    pn.highestSeen[args.Key]=-1
 	}
 
