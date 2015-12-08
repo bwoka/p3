@@ -194,7 +194,9 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
-
+	if _, ok := pn.highestSeen["foo"]; !ok {
+	    pn.highestSeen[args.Key]=-1
+	}
 	if pn.highestSeen[args.Key] > args.N {
 		reply.Status = paxosrpc.Reject
 		reply.N_a = -1
@@ -211,6 +213,9 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
+	if _, ok := pn.highestSeen["foo"]; !ok {
+	    pn.highestSeen[args.Key]=-1
+	}
 
 	if pn.highestSeen[args.Key] > args.N {
 		reply.Status = paxosrpc.Reject
