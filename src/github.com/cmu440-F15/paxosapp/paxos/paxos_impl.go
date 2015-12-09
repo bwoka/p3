@@ -1,6 +1,7 @@
 package paxos
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cmu440-F15/paxosapp/rpc/paxosrpc"
@@ -8,7 +9,6 @@ import (
 	"net/http"
 	"net/rpc"
 	"time"
-	"json"
 )
 
 type paxosNode struct {
@@ -41,6 +41,7 @@ type Na_va struct {
 // of nodes in the ring, replace is a flag which indicates whether this node
 // is a replacement for a node which failed.
 func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, numRetries int, replace bool) (PaxosNode, error) {
+	hostMap[srvId] = myHostPort
 	newNode := paxosNode{
 		store:       make(map[string]interface{}),
 		highestSeen: make(map[string]int),
@@ -73,10 +74,10 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 				}
 			} else {
 				newNode.allNodes[i] = client
-				if replace{
+				if replace {
 					var rreply paxosrpc.ReplaceServerReply
-					rargs:= &paxosrpc.ReplaceCatchupArgs{SrvID: srvId, Hostport: myHostPort}
-					client.Call("RecvReplaceServer",rargs,rreply)
+					rargs := &paxosrpc.ReplaceServerArgs{SrvID: srvId, Hostport: myHostPort}
+					client.Call("RecvReplaceServer", rargs, rreply)
 				}
 			}
 
@@ -84,19 +85,19 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 
 	}
 	//if were a replacement node, let's get caught up with the store.
-	if replace{
-		i:=0
+	if replace {
+		i := 0
 		//don't ask ourselves, ask another node!
-		if srvId==0{
-			i=1
+		if srvId == 0 {
+			i = 1
 		}
-		client, err := rpc.DialHTTP("tcp", hostMap[i])
-    	var catchupData map[string]interface{}
-		var creply paxosrpc.ReplaceCatchupArgs
-		cargs:= &paxosrpc.ReplaceCatchupReply{}
-		client.Call("ReplaceCatchupReply",cargs,creply)
-		json.UnMarshal(creply.Data, catchupData)
-		newNode.store=data
+		client := newNode.allNodes[i]
+		var catchupData map[string]interface{}
+		var creply paxosrpc.ReplaceCatchupReply
+		cargs := &paxosrpc.ReplaceCatchupReply{}
+		client.Call("ReplaceCatchupReply", cargs, creply)
+		json.Unmarshal(creply.Data, catchupData)
+		newNode.store = catchupData
 
 	}
 	return &newNode, nil
@@ -275,11 +276,12 @@ func (pn *paxosNode) RecvCommit(args *paxosrpc.CommitArgs, reply *paxosrpc.Commi
 }
 
 func (pn *paxosNode) RecvReplaceServer(args *paxosrpc.ReplaceServerArgs, reply *paxosrpc.ReplaceServerReply) error {
-	pn.allNodes[args.SrvID]=args.Hostport
-	return errors.New("not implemented")
+	client, _ := rpc.DialHTTP("tcp", args.Hostport)
+	pn.allNodes[args.SrvID] = client
+	return nil
 }
 
 func (pn *paxosNode) RecvReplaceCatchup(args *paxosrpc.ReplaceCatchupArgs, reply *paxosrpc.ReplaceCatchupReply) error {
-	args.Data, _ := json.Marshal(pn.store)
-	return errors.New("not implemented")
+	reply.Data, _ = json.Marshal(pn.store)
+	return nil
 }
