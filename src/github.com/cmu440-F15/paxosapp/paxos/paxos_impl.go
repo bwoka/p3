@@ -76,11 +76,12 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 				}
 			} else {
 				newNode.allNodes[i] = client
-				if replace {
+				if replace && i != srvId {
 					var rreply paxosrpc.ReplaceServerReply
 					rargs := &paxosrpc.ReplaceServerArgs{SrvID: srvId, Hostport: myHostPort}
-					client.Call("RecvReplaceServer", rargs, rreply)
+					client.Call("PaxosNode.RecvReplaceServer", rargs, &rreply)
 				}
+				break
 			}
 
 		}
@@ -100,8 +101,8 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		var creply paxosrpc.ReplaceCatchupReply
 		cargs := &paxosrpc.ReplaceCatchupArgs{}
 		fmt.Println("getting catchup")
-		client.Call("RecvReplaceCatchup", cargs, &creply)
-		json.Unmarshal(creply.Data, catchupData)
+		client.Call("PaxosNode.RecvReplaceCatchup", cargs, &creply)
+		json.Unmarshal(creply.Data, &catchupData)
 		newNode.store = catchupData
 		fmt.Println("replaced store")
 		for k, v := range newNode.store {
@@ -211,7 +212,9 @@ func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *pa
 func sendAccept(pn *paxosNode, client *rpc.Client, replies chan int, aArgs *paxosrpc.AcceptArgs) {
 	var reply paxosrpc.AcceptReply
 	client.Call("PaxosNode.RecvAccept", aArgs, &reply)
-	replies <- 1
+	if reply.Status == paxosrpc.OK {
+		replies <- 1
+	}
 	return
 }
 
