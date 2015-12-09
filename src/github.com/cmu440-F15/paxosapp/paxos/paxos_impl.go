@@ -55,6 +55,7 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		allNodes:    make([]*rpc.Client, numNodes),
 		numNodes:    numNodes,
 		stage:       make(map[string]int)}
+	fmt.Println("created node")
 	rpc.RegisterName("PaxosNode", &newNode)
 	rpc.HandleHTTP()
 	l, e := net.Listen("tcp", myHostPort)
@@ -63,6 +64,7 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 	}
 	go http.Serve(l, nil)
 
+	fmt.Println("listening for connections")
 	for i := 0; i < numNodes; i++ {
 		for j := 0; j < 5; j++ {
 			client, err := rpc.DialHTTP("tcp", hostMap[i])
@@ -84,8 +86,10 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		}
 
 	}
+	fmt.Println("connected to all other nodes")
 	//if were a replacement node, let's get caught up with the store.
 	if replace {
+		fmt.Println("need to replace")
 		i := 0
 		//don't ask ourselves, ask another node!
 		if srvId == 0 {
@@ -95,9 +99,14 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		var catchupData map[string]interface{}
 		var creply paxosrpc.ReplaceCatchupReply
 		cargs := &paxosrpc.ReplaceCatchupReply{}
+		fmt.Println("getting catchup")
 		client.Call("ReplaceCatchupReply", cargs, creply)
 		json.Unmarshal(creply.Data, catchupData)
 		newNode.store = catchupData
+		fmt.Println("replaced store")
+		for k, v := range newNode.store {
+			fmt.Println(k, v)
+		}
 
 	}
 	return &newNode, nil
@@ -276,12 +285,18 @@ func (pn *paxosNode) RecvCommit(args *paxosrpc.CommitArgs, reply *paxosrpc.Commi
 }
 
 func (pn *paxosNode) RecvReplaceServer(args *paxosrpc.ReplaceServerArgs, reply *paxosrpc.ReplaceServerReply) error {
+	fmt.Println(pn.nodeID, " is replacing node", args.SrvID)
 	client, _ := rpc.DialHTTP("tcp", args.Hostport)
 	pn.allNodes[args.SrvID] = client
+	pn.hostMap[args.SrvID] = args.Hostport
 	return nil
 }
 
 func (pn *paxosNode) RecvReplaceCatchup(args *paxosrpc.ReplaceCatchupArgs, reply *paxosrpc.ReplaceCatchupReply) error {
+	fmt.Println(pn.nodeID, " is providing data")
+	for k, v := range pn.store {
+		fmt.Println(k, v)
+	}
 	reply.Data, _ = json.Marshal(pn.store)
 	return nil
 }
