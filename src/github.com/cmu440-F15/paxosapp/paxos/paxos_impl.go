@@ -98,9 +98,9 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		client := newNode.allNodes[i]
 		var catchupData map[string]interface{}
 		var creply paxosrpc.ReplaceCatchupReply
-		cargs := &paxosrpc.ReplaceCatchupReply{}
+		cargs := &paxosrpc.ReplaceCatchupArgs{}
 		fmt.Println("getting catchup")
-		client.Call("ReplaceCatchupReply", cargs, creply)
+		client.Call("RecvReplaceCatchup", cargs, &creply)
 		json.Unmarshal(creply.Data, catchupData)
 		newNode.store = catchupData
 		fmt.Println("replaced store")
