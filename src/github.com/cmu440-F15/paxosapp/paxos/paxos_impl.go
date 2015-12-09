@@ -96,8 +96,7 @@ func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, re
 }
 
 func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.ProposeReply) error {
-	fmt.Println("Proposing...")
-	fmt.Println(args.V)
+	fmt.Println("Proposing to ", pn.numNodes)
 	pArgs := &paxosrpc.PrepareArgs{Key: args.Key, N: args.N}
 	var client *rpc.Client
 	replies := make(chan int, pn.numNodes)
@@ -115,16 +114,18 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	fmt.Println("got ACKD...")
 	highestna := 0
 	var highestva interface{}
+
 	close(acceptChan)
-	for nava := range acceptChan {
+	for len(acceptChan) != 0 {
+		nava := <-acceptChan
 		if nava.na >= highestna {
 			highestna = nava.na
 			highestva = nava.va
 		}
 	}
+	fmt.Println("Received responses from prepares")
 	ourValue := args.V
 
 	if highestna > 0 {
@@ -135,9 +136,9 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		return nil
 	}
 
-	fmt.Println("ourvalue is ", ourValue)
 	aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: ourValue}
 	replies2 := make(chan int, pn.numNodes)
+	fmt.Println("sending accepts")
 	for i := 0; i < pn.numNodes; i++ {
 		client = pn.allNodes[i]
 		go sendAccept(pn, client, replies2, aArgs)
@@ -150,10 +151,12 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	fmt.Println("got reponses from accepts")
 	if ackd == false {
 		return nil
 	}
 
+	fmt.Println("sending commits")
 	cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: ourValue}
 	for i := 0; i < pn.numNodes; i++ {
 		sendCommit(pn, i, cArgs)
@@ -166,7 +169,6 @@ func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.Propose
 func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *paxosrpc.PrepareArgs, acceptChan chan Na_va) {
 	var reply paxosrpc.PrepareReply
 	client.Call("PaxosNode.RecvPrepare", pArgs, &reply)
-	fmt.Println(reply.V_a)
 	va := reply.V_a
 	na := reply.N_a
 	acceptChan <- Na_va{na: na, va: va}
@@ -200,7 +202,7 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
-	fmt.Println("Receiving prepare")
+	fmt.Println("Receiving prepare in ", pn.nodeID)
 	if _, ok := pn.highestSeen[args.Key]; !ok {
 		pn.highestSeen[args.Key] = -1
 	}
@@ -224,6 +226,7 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
+	fmt.Println("Receving accept in ", pn.nodeID)
 	if _, ok := pn.highestSeen[args.Key]; !ok {
 		pn.highestSeen[args.Key] = -1
 	}
@@ -240,6 +243,7 @@ func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.Accep
 }
 
 func (pn *paxosNode) RecvCommit(args *paxosrpc.CommitArgs, reply *paxosrpc.CommitReply) error {
+	fmt.Println("Receiving commit in ", pn.nodeID)
 	key := args.Key
 	value := args.V
 	pn.store[key] = value
