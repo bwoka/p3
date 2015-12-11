@@ -26,10 +26,11 @@ func getPaxos(key string)string{
 func setPaxos(key string,value string){
 }
 
-func (ts *TodoServer ) start(port string) {
+func (ts *TodoServer ) start(port string, done chan bool) {
     http.HandleFunc("/add", ts.addHandler)
     http.HandleFunc("/delete", ts.deleteHandler)
     http.HandleFunc("/", ts.renderPage)
+    done<-true
     http.ListenAndServe(port, nil)
 
 }
@@ -82,16 +83,21 @@ func (ts *TodoServer ) addHandler(w http.ResponseWriter, r *http.Request) {
 
 func main(){
     fmt.Println("hello")
+    done:=make(chan bool)
     setPaxos("topitem","0")
 
     server1:=TodoServer{port: "8080"}
-    server1.start(":8080")
-    //server2:=TodoServer{port: "8081"}
-    //go server2.start(":8081")
+    go server1.start(":8080",done)
+    _=<-done
+    server2:=TodoServer{port: "8081"}
+    go server2.start(":8081",done)
+    _=<-done
     //server3:=TodoServer{port: "8082"}
     //go server3.start(":8082")
+    //_=<-done
     //server4:=TodoServer{port: "8083"}
     //go server4.start(":8083")
+    //_=<-done
     time.Sleep(1)
 
 
