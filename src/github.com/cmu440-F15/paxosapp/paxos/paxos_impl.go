@@ -55,7 +55,6 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		allNodes:    make([]*rpc.Client, numNodes),
 		numNodes:    numNodes,
 		stage:       make(map[string]int)}
-	fmt.Println("created node")
 	rpc.RegisterName("PaxosNode", &newNode)
 	rpc.HandleHTTP()
 	l, e := net.Listen("tcp", myHostPort)
@@ -64,7 +63,6 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 	}
 	go http.Serve(l, nil)
 
-	fmt.Println("listening for connections")
 	for i := 0; i < numNodes; i++ {
 		for j := 0; j < 5; j++ {
 			client, err := rpc.DialHTTP("tcp", hostMap[i])
@@ -87,10 +85,8 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		}
 
 	}
-	fmt.Println("connected to all other nodes")
 	//if were a replacement node, let's get caught up with the store.
 	if replace {
-		fmt.Println("need to replace")
 		i := 0
 		//don't ask ourselves, ask another node!
 		if srvId == 0 {
@@ -100,11 +96,9 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 		var catchupData map[string]interface{}
 		var creply paxosrpc.ReplaceCatchupReply
 		cargs := &paxosrpc.ReplaceCatchupArgs{}
-		fmt.Println("getting catchup")
 		client.Call("PaxosNode.RecvReplaceCatchup", cargs, &creply)
 		json.Unmarshal(creply.Data, &catchupData)
 		newNode.store = catchupData
-		fmt.Println("replaced store")
 		for k, v := range newNode.store {
 			fmt.Println(k, v)
 		}
@@ -129,83 +123,71 @@ func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, re
 }
 
 func (pn *paxosNode) Propose(args *paxosrpc.ProposeArgs, reply *paxosrpc.ProposeReply) error {
-	fmt.Println("Proposing to ", pn.numNodes)
-	pArgs := &paxosrpc.PrepareArgs{Key: args.Key, N: args.N}
-	var client *rpc.Client
-	replies := make(chan int, pn.numNodes)
-	acceptChan := make(chan Na_va, pn.numNodes)
-	for i := 0; i < pn.numNodes; i++ {
-		client = pn.allNodes[i]
-		go sendProposal(pn, client, replies, pArgs, acceptChan)
-	}
-	ackd := false
-	var j int
-	for j = 0; j < 1500; j++ {
-		if len(replies) > pn.numNodes/2 {
-			ackd = true
-			break
+	doneChan := make(chan interface{})
+	go func() {
+		//		fmt.Println("Proposing to ", pn.numNodes)
+		pArgs := &paxosrpc.PrepareArgs{Key: args.Key, N: args.N}
+		var client *rpc.Client
+		acceptChan := make(chan Na_va, pn.numNodes)
+		for i := 0; i < pn.numNodes; i++ {
+			client = pn.allNodes[i]
+			go sendProposal(pn, client, pArgs, acceptChan)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	highestna := 0
-	var highestva interface{}
 
-	close(acceptChan)
-	for len(acceptChan) != 0 {
-		nava := <-acceptChan
-		if nava.na >= highestna {
-			highestna = nava.na
-			highestva = nava.va
+		highestna := 0
+		var highestva interface{}
+		for j := 0; j <= pn.numNodes/2; j++ {
+			//			fmt.Println("got a prepare reply")
+			nava := <-acceptChan
+			if nava.na >= highestna {
+				highestna = nava.na
+				highestva = nava.va
+			}
+
 		}
-	}
-	fmt.Println("Received responses from prepares")
-	ourValue := args.V
 
-	if highestna > 0 {
-		ourValue = highestva
-	}
+		//		fmt.Println("Received responses from prepares")
+		ourValue := args.V
 
-	if ackd == false {
+		if highestna > 0 {
+			ourValue = highestva
+		}
+
+		aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: ourValue}
+		replies2 := make(chan int, pn.numNodes)
+		//		fmt.Println("sending accepts")
+		for i := 0; i < pn.numNodes; i++ {
+			client = pn.allNodes[i]
+			go sendAccept(pn, client, replies2, aArgs)
+		}
+		for k := 0; k <= pn.numNodes/2; k++ {
+			//			fmt.Println("got an accept reply")
+			_ = <-replies2
+		}
+
+		//		fmt.Println("sending commits")
+		cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: ourValue}
+		for i := 0; i < pn.numNodes; i++ {
+			sendCommit(pn, i, cArgs)
+		}
+		fmt.Println("commiting", ourValue)
+		doneChan <- ourValue
+	}()
+	select {
+	case r := <-doneChan:
+		reply.V = r
+		return nil
+	case <-time.After(15 * time.Second):
 		return nil
 	}
-
-	aArgs := &paxosrpc.AcceptArgs{Key: args.Key, N: args.N, V: ourValue}
-	replies2 := make(chan int, pn.numNodes)
-	fmt.Println("sending accepts")
-	for i := 0; i < pn.numNodes; i++ {
-		client = pn.allNodes[i]
-		go sendAccept(pn, client, replies2, aArgs)
-	}
-	ackd = false
-	for k := j; k < 1500; k++ {
-		if len(replies2) > pn.numNodes/2 {
-			ackd = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	fmt.Println("got reponses from accepts")
-	if ackd == false {
-		return nil
-	}
-
-	fmt.Println("sending commits")
-	cArgs := &paxosrpc.CommitArgs{Key: args.Key, V: ourValue}
-	for i := 0; i < pn.numNodes; i++ {
-		sendCommit(pn, i, cArgs)
-	}
-
-	reply.V = args.V
-	return nil
 }
 
-func sendProposal(pn *paxosNode, client *rpc.Client, replies chan int, pArgs *paxosrpc.PrepareArgs, acceptChan chan Na_va) {
+func sendProposal(pn *paxosNode, client *rpc.Client, pArgs *paxosrpc.PrepareArgs, acceptChan chan Na_va) {
 	var reply paxosrpc.PrepareReply
 	client.Call("PaxosNode.RecvPrepare", pArgs, &reply)
 	va := reply.V_a
 	na := reply.N_a
 	acceptChan <- Na_va{na: na, va: va}
-	replies <- 1
 	return
 }
 
@@ -237,7 +219,7 @@ func (pn *paxosNode) GetValue(args *paxosrpc.GetValueArgs, reply *paxosrpc.GetVa
 }
 
 func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.PrepareReply) error {
-	fmt.Println("Receiving prepare in ", pn.nodeID)
+	//	fmt.Println("Receiving prepare in ", pn.nodeID)
 	if _, ok := pn.highestSeen[args.Key]; !ok {
 		pn.highestSeen[args.Key] = -1
 	}
@@ -261,7 +243,7 @@ func (pn *paxosNode) RecvPrepare(args *paxosrpc.PrepareArgs, reply *paxosrpc.Pre
 }
 
 func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.AcceptReply) error {
-	fmt.Println("Receving accept in ", pn.nodeID)
+	//	fmt.Println("Receving accept in ", pn.nodeID)
 	if _, ok := pn.highestSeen[args.Key]; !ok {
 		pn.highestSeen[args.Key] = -1
 	}
@@ -278,7 +260,8 @@ func (pn *paxosNode) RecvAccept(args *paxosrpc.AcceptArgs, reply *paxosrpc.Accep
 }
 
 func (pn *paxosNode) RecvCommit(args *paxosrpc.CommitArgs, reply *paxosrpc.CommitReply) error {
-	fmt.Println("Receiving commit in ", pn.nodeID)
+	//	fmt.Println("Receiving commit in ", pn.nodeID)
+	//	fmt.Println("Stuck here?")
 	key := args.Key
 	value := args.V
 	pn.store[key] = value
@@ -288,7 +271,7 @@ func (pn *paxosNode) RecvCommit(args *paxosrpc.CommitArgs, reply *paxosrpc.Commi
 }
 
 func (pn *paxosNode) RecvReplaceServer(args *paxosrpc.ReplaceServerArgs, reply *paxosrpc.ReplaceServerReply) error {
-	fmt.Println(pn.nodeID, " is replacing node", args.SrvID)
+	//	fmt.Println(pn.nodeID, " is replacing node", args.SrvID)
 	client, _ := rpc.DialHTTP("tcp", args.Hostport)
 	pn.allNodes[args.SrvID] = client
 	pn.hostMap[args.SrvID] = args.Hostport
@@ -296,7 +279,7 @@ func (pn *paxosNode) RecvReplaceServer(args *paxosrpc.ReplaceServerArgs, reply *
 }
 
 func (pn *paxosNode) RecvReplaceCatchup(args *paxosrpc.ReplaceCatchupArgs, reply *paxosrpc.ReplaceCatchupReply) error {
-	fmt.Println(pn.nodeID, " is providing data")
+	//	fmt.Println(pn.nodeID, " is providing data")
 	for k, v := range pn.store {
 		fmt.Println(k, v)
 	}
