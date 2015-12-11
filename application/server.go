@@ -5,6 +5,7 @@ import (
     "net/http"
     "strconv"
     "strings"
+    "time"
 )
 
 type TodoServer struct{
@@ -18,12 +19,11 @@ type todoServer interface {
 }
 
 
-func getPaxos(key string){
-
+func getPaxos(key string)string{
+    return "helloTest"
 }
 
 func setPaxos(key string,value string){
-
 }
 
 func (ts *TodoServer ) start(port string) {
@@ -31,6 +31,7 @@ func (ts *TodoServer ) start(port string) {
     http.HandleFunc("/delete", ts.deleteHandler)
     http.HandleFunc("/", ts.renderPage)
     http.ListenAndServe(port, nil)
+
 }
 
 
@@ -38,8 +39,8 @@ func (ts *TodoServer ) renderPage(w http.ResponseWriter, r *http.Request) {
      header:="<!DOCTYPE html>\n<html>\n<body>\n<h1>Shared Todo List</h1>"
      //todo: probably have to adjust this one
      content:=getPaxosContent(r.URL.Path)
-     footer:="<form action=\"/delete\" method=\"GET\">New Item:<input type=\"text\" name=\"newItem\"></form>\n</body>\n</html>"
-     fmt.Fprintf(w, strings.Join([]string{header, content,footer},"\n"), r.URL.Path[1:])
+     footer:="<form action=\"/add\" method=\"GET\">New Item:\n<input type=\"text\" name=\"newItem\"></input>\n<input type=\"submit\"></input></form>\n</body>\n</html>"
+     fmt.Fprintf(w, strings.Join([]string{header, content,footer},"\n"))
 }
 
 
@@ -61,7 +62,7 @@ func getPaxosContent(url string) string{
     for x:=0; x<=last; x++{
         xString:=strconv.Itoa(x)
         item:=getPaxos(xString)
-        content[x]=strings.Join([]string{"<div><a href=\"",url,"delete?name1=value1&name2=value2\">",item,"</div>\n"},"")
+        content[x]=strings.Join([]string{"<div><a href=\"",strings.Split(url,"/")[0],"delete?toDelete=",xString,"\">X  </a> ",item,"</div>\n"},"")
     }
     return strings.Join(content,"")
 }
@@ -80,13 +81,19 @@ func (ts *TodoServer ) addHandler(w http.ResponseWriter, r *http.Request) {
 
 
 func main(){
-    server1:=TodoServer{port: "8080"}
-    go server1.start(":8080")
-    server2:=TodoServer{port: "8081"}
-    go server2.start(":8081")
-    server3:=TodoServer{port: "8082"}
-    go server3.start(":8082")
-    server4:=TodoServer{port: "8083"}
-    go server4.start(":8083")
+    fmt.Println("hello")
     setPaxos("topitem","0")
+
+    server1:=TodoServer{port: "8080"}
+    server1.start(":8080")
+    //server2:=TodoServer{port: "8081"}
+    //go server2.start(":8081")
+    //server3:=TodoServer{port: "8082"}
+    //go server3.start(":8082")
+    //server4:=TodoServer{port: "8083"}
+    //go server4.start(":8083")
+    time.Sleep(1)
+
+
+
 }
