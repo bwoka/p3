@@ -3,6 +3,7 @@ package paxos
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cmu440-F15/paxosapp/rpc/paxosrpc"
 	"net"
 	"net/http"
@@ -37,6 +38,7 @@ type Na_va struct {
 // is a replacement for a node which failed.
 func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, numRetries int, replace bool) (PaxosNode, error) {
 	hostMap[srvId] = myHostPort
+	fmt.Println(myHostPort)
 	newNode := paxosNode{
 		store:       make(map[string]interface{}),
 		highestSeen: make(map[string]int),
@@ -53,16 +55,17 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 	rpc.HandleHTTP()
 	l, e := net.Listen("tcp", myHostPort)
 	if e != nil {
+		fmt.Println(myHostPort, e)
 		return nil, errors.New("PaxosNode couldn't start listening")
 	}
 	go http.Serve(l, nil)
 
 	// Connect to all other nodes
 	for i := 0; i < numNodes; i++ {
-		for j := 0; j < 5; j++ {
+		for j := 1; j < numRetries+1; j++ {
 			client, err := rpc.DialHTTP("tcp", hostMap[i])
 			if err != nil {
-				if j <= 3 {
+				if j < numRetries {
 					time.Sleep(time.Second)
 				} else {
 					return nil, errors.New("PaxosNode couldn't connect to other nodes")
@@ -98,6 +101,8 @@ func NewPaxosNode(myHostPort string, hostMap map[int]string, numNodes, srvId, nu
 
 	}
 	return &newNode, nil
+	fmt.Println("")
+	return nil, nil
 }
 
 func (pn *paxosNode) GetNextProposalNumber(args *paxosrpc.ProposalNumberArgs, reply *paxosrpc.ProposalNumberReply) error {
